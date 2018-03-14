@@ -1,0 +1,17 @@
+http://localhost:5001/transactions/new
+http://localhost:5001/chain
+http://localhost:5001/mine
+http://localhost:5001/nodes/resolve
+http://localhost:5001/nodes/register
+
+
+{
+	"nodes": [
+		"http://127.0.0.1:5001"
+	]
+}
+{
+ "sender": "IFAN",
+ "recipient": "SAIFUL",
+ "amount": 5
+}

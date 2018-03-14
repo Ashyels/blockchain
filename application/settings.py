@@ -1,0 +1,2 @@
+IFAN = True
+TRIA = False
