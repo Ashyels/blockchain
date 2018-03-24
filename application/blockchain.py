@@ -11,6 +11,7 @@ from application.settings import TRIA, IFAN
 
 class Blockchain:
     def __init__(self):
+        print(TRIA)
         self.current_transactions = []
         self.chain = []
         self.nodes = set()

@@ -13,7 +13,7 @@ if __name__ == '__main__':
     if user == 'ifan':
         IFAN = True
         TRIA = False
-    elif user == 'tria':
+    elif user == 'tria': 
         IFAN = False
         TRIA = True
 
