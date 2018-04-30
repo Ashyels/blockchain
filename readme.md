@@ -60,7 +60,7 @@ get to `http://localhost:500(x)/chain`
 
 ### Update node (x+1) ledger (to the longest ledger from node x)
 
-get to `http://localhost:500(x+1)/resolve`
+get to `http://localhost:500(x+1)/nodes/resolve`
 
 ## Original Project Author
 
@@ -68,7 +68,7 @@ get to `http://localhost:500(x+1)/resolve`
 
 ## Continue Project Authors
 
-We continue the development using base [Blockchain Project](https://github.com/dvf/blockchain) with Latest commit 250a01c on Jan 27
-
 1. [Ifan](https://github.com/ifandhanip)
 2. [Tria](https://github.com/TriaYudaPurnama)
+
+We continue the development using base [Blockchain Project](https://github.com/dvf/blockchain) with Latest commit 250a01c on Jan 27

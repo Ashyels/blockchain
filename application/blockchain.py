@@ -7,13 +7,30 @@ from uuid import uuid4
 import requests
 from flask import Flask, jsonify, request
 
-from application.settings import TRIA, IFAN
+import rsa
+
+
+# from application.settings import TRIA, IFAN
 
 class Blockchain:
     def __init__(self):
-        print(TRIA)
-        self.current_transactions = []
+        # print(TRIA)
+        self.current_transactions = [
+            {
+                "input": [],
+                "output": [
+                    {"txid": 1, "amount": 1000, "sender": None, "receiver" : "USER A"},
+                    {"txid": 2, "amount": 1000, "sender": None, "receiver" : "USER B"}
+                ]
+            }
+        ]
+
+        self.privatekey = b'-----BEGIN RSA PRIVATE KEY-----\nMIICXAIBAAKBgQDbMq0HKNLEDc3sRBKunmeVikqJdpDzyyL1XzLoqA0cbK0TcnZp\nMsoO1nD2xFuPw6l3oB1dgodUDRIRI6cKabgWBeuOxUUiX0g9vLk9qFz7q1/yqwHj\nz47sMElZdnPb0NgLbRQhaMpICWsmAizxnFjNB3IwriF8VfrhGdlyvol9WwIDAQAB\nAoGASkjYPq7lDrAm80T2l9ry+8jMDd3yrcxP4pwKorIhD1r9JLQL0Qb3VyPxUI+n\nAAetLO9ERGZx+lgboVdVyr+dNKjnZVeQKnAi2rgEThjsm/t1ozg2WyM+iVFqMYsg\nkqZZMmXIR8YGMT6Qs2K5HBbNOpq6XqV3fwf2eq+gEs0VMrECQQDqa0KZVfQs0P6H\nRCQPAZUQuZYSD0efbnl8TbPPYEsTJ/ELSuRj9Q0TfZdHKRrtl7kOCbTFi9qLYk+4\n3DhgToyPAkEA72CwgkWyeEzvdaW3fuhPtkV2phHO0PgTissiGU0VmyI6b90LtKf2\nmcl7DNimzaEuEgRlgNKfp1qkEsklp0jAdQJBAJ8/OGIEQzlCzPZFMx3CnGpdOPaR\nzL0hBoSMIK+rIbUkuBpMyTSiXzyzX9ZmtTVckclYjKZ6qH9xzOivKdk64z8CQHPj\na5CmDXEQTh22zM8zyOOFXZuoo2ensk5PaYK2Pu+L8p6VdUVQy6JIWLovaRHEJnmy\nhzGGxqROzYAKwZ/rKMECQEjEgMb0ogIol93jfU3JNG3ToU7vP7rIvvMS9Bz0V2C6\nBeIepjSiAkZNFdSsiWXfO1OjyfBuOO313q9T2F5dtVA=\n-----END RSA PRIVATE KEY-----'
+        self.publickey = b'-----BEGIN RSA PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDbMq0HKNLEDc3sRBKunmeVikqJ\ndpDzyyL1XzLoqA0cbK0TcnZpMsoO1nD2xFuPw6l3oB1dgodUDRIRI6cKabgWBeuO\nxUUiX0g9vLk9qFz7q1/yqwHjz47sMElZdnPb0NgLbRQhaMpICWsmAizxnFjNB3Iw\nriF8VfrhGdlyvol9WwIDAQAB\n-----END RSA PUBLIC KEY-----'
         self.chain = []
+        # self.temp_file = node_identifier + '.son'
+        self.servers = []
+        self.nodes_ip = []
         self.nodes = set()
 
         # Create the genesis block
@@ -29,12 +46,18 @@ class Blockchain:
         parsed_url = urlparse(address)
         if parsed_url.netloc:
             self.nodes.add(parsed_url.netloc)
+            self.nodes_ip.append(parsed_url.netloc)
         elif parsed_url.path:
-            # Accepts an URL without scheme like '192.168.0.5:5000'.
             self.nodes.add(parsed_url.path)
+            self.nodes_ip.append(parsed_url.path)
         else:
             raise ValueError('Invalid URL')
 
+    def register_node_publickey(self, node_ip):
+        import requests, json
+        response = requests.get(f'http://{node_ip}/nodes/publickey')
+        response_data = response.json()
+        self.servers.append(response_data['publickey'])
 
     def valid_chain(self, chain):
         """
@@ -110,15 +133,15 @@ class Blockchain:
 
         return False
 
-    def broadcast_block(self):
-        neighbours = self.nodes
-        for node in neighbours:
-            print(f'http://{node}/nodes/resolve')
-            try:
-                response = requests.get(f'http://{node}/nodes/resolve')
-            except:
-                print(response)
-        return True
+    # def broadcast_block(self):
+    #     neighbours = self.nodes
+    #     for node in neighbours:
+    #         # print(f'http://{node}/nodes/resolve')
+    #         # try:
+    #         #     response = requests.get(f'http://{node}/nodes/resolve')
+    #         # except:
+    #         #     print(response)
+    #     return True
 
     def new_block(self, proof, previous_hash):
         block = {
@@ -136,20 +159,215 @@ class Blockchain:
         self.chain.append(block)
         return block
 
-    def new_transaction(self, sender, recipient, amount):
+    def listUnspentInput(self, sender, receiver, amount):
+        account = sender
+        outputList = []
+        inputTxIDList = []
+        outputTxIDList = []
+        for block in self.chain:
+            for transaction in block['transactions']:
+                for tx_input in transaction['input']:
+                    if tx_input['receiver'] == account:
+                        inputTxIDList.append(tx_input['txid'])
+                for tx_output in transaction['output']:
+                    if tx_output['receiver'] == account:
+                        outputList.append(tx_output)
+                        outputTxIDList.append(tx_output['txid'])
+
+        UnspentInputTxIDList = [val for val in outputTxIDList if val not in inputTxIDList]
+        UnspentInputList = []
+        for tx in outputList:
+            for tx_id in UnspentInputTxIDList:
+                if tx_id == tx['txid']:
+                    UnspentInputList.append(tx)
+        return UnspentInputList
+
+    def reveal_msg(self, msg):
+        import base64
+        return base64.b64decode(msg.encode())
+
+    def encapsulate_msg(self, msg):
+        import base64
+        msg = base64.b64encode(msg)
+        decoded_msg = msg.decode()
+        return decoded_msg
+
+    def decrypt_transaction(self, encrypted_transaction):
+        from Crypto.PublicKey import RSA
+        from Crypto.Cipher import PKCS1_OAEP
+        import ast
+
+        privatekey_ready = RSA.importKey(self.privatekey)
+        decryptor = PKCS1_OAEP.new(privatekey_ready)
+        transaction = decryptor.decrypt(ast.literal_eval(str(encrypted_transaction))).decode()
+
+        return transaction
+
+    def authenticate_transaction(self, pubkey, signature, transaction):
+        from Crypto.Signature import PKCS1_v1_5
+        from Crypto.Hash import SHA
+
+        verifier = PKCS1_v1_5.new(pubkey)
+        new_hash = SHA.new(transaction.encode())
+
+        if verifier.verify(new_hash, signature):
+            return True
+        else:
+            return False
+
+    def validate_transaction(self, input_list, output_list, sender):
+        total_input_amount = 0
+        total_output_amount = 0
+        for input in input_list:
+            total_input_amount = total_input_amount + input['amount']
+        for output in output_list:
+            total_output_amount = total_output_amount + output['amount']
+        if total_input_amount > total_output_amount:
+            selisish = total_input_amount - total_output_amount
+
+            latest_txid = 0
+            for output in output_list:
+                latest_txid = output['txid']
+            new_txid = latest_txid + 1
+            output_list.append({"txid": new_txid, "amount": selisish, "sender": sender, "receiver" : sender})
+        return output_list
+
+    def encrypt_msg(self, msg, pubkey):
+        from Crypto.PublicKey import RSA
+        from Crypto.Cipher import PKCS1_OAEP
+        pubkey_ready = RSA.importKey(pubkey)
+        encryptor = PKCS1_OAEP.new(pubkey_ready)
+        encrypted_msg = encryptor.encrypt(msg.encode())        
+        return encrypted_msg
+
+    def sign_msg(self, msg):
+        from Crypto.Signature import PKCS1_v1_5
+        from Crypto.Hash import SHA
+        from Crypto.PublicKey import RSA
+
+        hash = SHA.new(msg.encode())
+        privatekey_ready = RSA.importKey(self.privatekey)
+        signer = PKCS1_v1_5.new(privatekey_ready)
+        signature = signer.sign(hash)
+        return signature
+
+    def multicast_preprepare_msg(self, transaction):
+        import base64
+
+        signature = self.sign_msg(transaction)
+        encapsulated_signature = self.encapsulate_msg(signature)
+
+        neighbours = self.nodes
+        headers = {"Content-Type": "application/json"}
+        counter = 0
+
+        for index in range(len(self.nodes_ip)):
+            encrypted_transaction = self.encrypt_msg(transaction, self.servers[index])
+            encapsulated_transaction = self.encapsulate_msg(encrypted_transaction)
+            data={'sender_id': self.publickey.decode(), 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
+            print(self.nodes_ip[index])
+            response = requests.post(f'http://{self.nodes_ip[index]}/transactions/preprepare', data=json.dumps(data), headers=headers)
+            # import socket
+            # ip, colon, port = self.nodes_ip[index].partition(':')
+            # sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # sock.sendto(json.dumps(data).encode(), (ip, int(port)))
+            counter = counter + 1
+
+        if counter == len(self.nodes_ip):
+            response = 'message has been sent to all nodes'
+            print(response)
+            print('PREPREPARE DONE')
+            return response
+        else:
+            response = 'there is malicious message'
+            print(response)
+            return response
+
+    def multicast_prepare_msg(self, transaction):
+        import base64
+        import time
+        # time.sleep(2)
+
+        signature = self.sign_msg(transaction)
+        encapsulated_signature = self.encapsulate_msg(signature)
+
+        neighbours = self.nodes
+        headers = {"Content-Type": "application/json"}
+        counter = 0
+
+        for index in range(len(self.nodes_ip)):
+            encrypted_transaction = self.encrypt_msg(transaction, self.servers[index])
+            encapsulated_transaction = self.encapsulate_msg(encrypted_transaction)
+            data={'sender_id': self.publickey.decode(), 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
+            response = requests.post(f'http://{self.nodes_ip[index]}/transactions/prepare', data=json.dumps(data), headers=headers)
+            if response.status_code == 201:
+                counter = counter + 1
+        if counter == len(self.nodes_ip):
+            response = 'message has been sent to all nodes'
+            print(response)
+            print('PREPARE DONE')
+            return response
+        else:
+            response = 'there is malicious message'
+            print(response)
+            return response
+
+    def multicast_commit_msg(self, transaction):
+        import base64
+        import time
+        # time.sleep(2)
+
+        signature = self.sign_msg(transaction)
+        encapsulated_signature = self.encapsulate_msg(signature)
+
+        neighbours = self.nodes
+        headers = {"Content-Type": "application/json"}
+        counter = 0
+
+        for index in range(len(self.nodes_ip)):
+            encrypted_transaction = self.encrypt_msg(transaction, self.servers[index])
+            encapsulated_transaction = self.encapsulate_msg(encrypted_transaction)
+            data={'sender_id': self.publickey.decode(), 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
+            response = requests.post(f'http://{self.nodes_ip[index]}/transactions/commit', data=json.dumps(data), headers=headers)
+            if response.status_code == 201:
+                counter = counter + 1
+        if counter == len(self.nodes_ip):
+            response = 'message has been sent to all nodes'
+            print(response)
+            print('COMMIT DONE')
+            return response
+        else:
+            response = 'there is malicious message'
+            print(response)
+            return response
+
+    def new_transaction(self, sender, receiver, amount):
         """
         Creates a new transaction to go into the next mined Block
 
         :param sender: Address of the Sender
-        :param recipient: Address of the Recipient
+        :param receiver: Address of the receiver
         :param amount: Amount
         :return: The index of the Block that will hold this transaction
         """
-        self.current_transactions.append({
-            'sender': sender,
-            'recipient': recipient,
-            'amount': amount,
-        })
+
+        # get latest txid
+        latest_txid = 0
+        for outputlist in self.chain[len(self.chain)-1]['transactions']:
+            for txid in outputlist['output']:
+                latest_txid = txid['txid']
+        new_txid = latest_txid + 1
+
+        input_list = self.listUnspentInput(sender, receiver, amount)
+        output_list = []
+        output_list.append({"txid": new_txid, "amount": amount, "sender": sender, "receiver" : receiver})
+        output_list = self.validate_transaction(input_list, output_list, sender)
+        self.current_transactions.append(
+            {
+                "input": input_list,
+                "output": output_list
+            }
+        )
 
         return self.last_block['index'] + 1
 
@@ -215,3 +433,19 @@ class Blockchain:
         guess = f'{last_proof}{proof}{last_hash}'.encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
         return guess_hash[:4] == "0000"
+
+    def test(self):        
+        # import time
+        (pubkey, privkey) = rsa.newkeys(512)
+        message = 'Go left at the blue tree'
+        encoded_message = message.encode('utf8')
+        # time.sleep(5)
+        encrypted_message = rsa.encrypt(encoded_message, pubkey)
+        decrypted_message = rsa.decrypt(encrypted_message, privkey)
+        decoded_message = decrypted_message.decode('utf8')
+        print(decoded_message)
+
+        signature = rsa.sign(encoded_message, privkey, 'SHA-1')
+        print(encoded_message)
+        print(signature)
+        print(rsa.verify(encoded_message, signature, pubkey))
