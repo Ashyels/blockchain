@@ -81,28 +81,20 @@ def send_msg(data, UDP_IP, UDP_PORT):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.sendto(data.encode(), (UDP_IP, UDP_PORT))
 
-def send_request_handler(client_address):
-    random_generator = Random.new().read
-    privkey = RSA.generate(1024, random_generator)
+def send_request_handler(client_address, privkey):
     public_key = privkey.publickey()
-    # print(privkey, privkey.exportKey('PEM'))        # different with .exportKey('OpenSSH')
-    # public_key = public_key.exportKey('PEM').decode()  # different with .exportKey('OpenSSH')
     dataset = get_dataset(client_address)
-    # print(dataset, client_address)
     
     exported_pubkey = public_key.exportKey('PEM')
     decoded_pubkey = exported_pubkey.decode() # ready to send the msg using JSON format
 
     global json
-    # print(dataset[0])
-    # msg = {'sender': 'USER B', 'receiver': 'USER A', 'amount': 200}
     for each_data in dataset:
         msg = each_data
         msg = json.dumps(msg)
         msg = msg.encode()
         prim_pubkey = import_key(pubkeys[0])
         encryptor = PKCS1_OAEP.new(prim_pubkey)
-        # print(msg)
         encrypted = encryptor.encrypt(msg)
 
         encapsulated_transaction = encapsulate_msg(encrypted)
@@ -112,12 +104,13 @@ def send_request_handler(client_address):
         ip, colon, port = nodes[0].partition(':')
         UDP_IP = ip
         UDP_PORT = int(port)
-        data = {'sender_address': client_address,'sender_id': decoded_pubkey, 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
+        data = {'client_pubkey': decoded_pubkey, 'sender_address': client_address,'sender_id': decoded_pubkey, 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
         data['route'] = 'transaction/request'
         send_msg(data, UDP_IP, UDP_PORT)
         print('message from', client_address, 'has sent')
 
-def get_request_handler(client_address):
+def get_request_handler(client_address, privkey, reply_tempfile):
+    public_key = privkey.publickey()
     ip, colon, port = client_address.partition(':')
 
     import socket
@@ -129,11 +122,11 @@ def get_request_handler(client_address):
 
     def listen(i):
         while True:
-            data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
+            data, addr = sock.recvfrom(1500) # buffer size is 1500 bytes
             data = data.decode()
             data = json.loads(data)
             # print(data)
-            threads.append(Thread(target=reply_phase(data, client_address), args=(len(threads),)))
+            threads.append(Thread(target=reply_phase(data, client_address, privkey, reply_tempfile), args=(len(threads),)))
             threads[len(threads)-1].daemon = True
             threads[len(threads)-1].start()
 
@@ -152,13 +145,13 @@ def reveal_msg(msg):
     import base64
     return base64.b64decode(msg.encode())
 
-def decrypt_transaction(encrypted_transaction):
+def decrypt_transaction(encrypted_transaction, privkey):
     from Crypto.PublicKey import RSA
     from Crypto.Cipher import PKCS1_OAEP
     import ast
 
-    privatekey_ready = RSA.importKey(privatekey)
-    decryptor = PKCS1_OAEP.new(privatekey_ready)
+    # privatekey_ready = RSA.importKey(privkey)
+    decryptor = PKCS1_OAEP.new(privkey)
     transaction = decryptor.decrypt(ast.literal_eval(str(encrypted_transaction))).decode()
 
     return transaction
@@ -179,18 +172,41 @@ def import_key(key):
     from Crypto.PublicKey import RSA
     return RSA.importKey(key)
 
-def reply_phase(data, client_address):
+def reply_phase(data, client_address, privkey, reply_tempfile):
     check_value(data)
     sender_pubkey = import_key(data['sender_id'])
     signature = reveal_msg(data['signature'])
     encrypted_transaction = reveal_msg(data['transaction'])
-    transaction = decrypt_transaction(encrypted_transaction)
+    transaction = decrypt_transaction(encrypted_transaction, privkey)
 
     authenticated = authenticate_transaction(sender_pubkey, signature, transaction)
     if authenticated:
         print(client_address, 'reply', 'message authenticated')
+        consisting_transactions = []
+        with open(reply_tempfile, 'r') as tx_tempfile:
+            consisting_transactions = json.load(tx_tempfile)
+            tx_tempfile.close()
+        with open(reply_tempfile, 'w') as tx_tempfile:
+            consisting_transactions.append(transaction)
+            json.dump(consisting_transactions, tx_tempfile)
+            tx_tempfile.close()
+        total_recv_msg = 4 # len(blockchain.serv_addrs)
+        print('prepare', len(consisting_transactions), total_recv_msg)
+        if len(consisting_transactions) == total_recv_msg:
+            for consisting_transaction in consisting_transactions:
+                if consisting_transaction == transaction:
+                    clear_tempstorage(reply_tempfile)
+                    print(client_address, 'start listening to music ...')
+                    break
     else:
         print(client_address, 'reply', 'message not authenticated')
+
+def clear_tempstorage(tempfile_name):
+    with open(tempfile_name, 'w') as tx_tempfile:
+        consisting_transactions = []
+        json.dump([], tx_tempfile)
+        tx_tempfile.close()
+    print(tempfile_name, 'cleaned up')
 
 def register_node():
     import requests
@@ -206,6 +222,22 @@ def register_node():
                 data['pubkeys'].append(pubkeys[index_2].decode())
         ip, colon, port = nodes[index].partition(':')
         send_msg(data, ip, int(port))
+
+def start_client(client_address):
+    random_generator = Random.new().read
+    privkey = RSA.generate(1024, random_generator)
+    ip, colon, port = client_address.partition(':')
+    reply_tempfile = 'temp/client/' + port + '_REPLY' + '.temp'
+    with open(reply_tempfile, 'w+') as tx_tempfile:
+        json.dump([], tx_tempfile)
+        tx_tempfile.close()
+
+    threads.append(Thread(target=get_request_handler(client_address, privkey, reply_tempfile), args=(len(threads),)))
+    threads[len(threads)-1].daemon = True
+    threads[len(threads)-1].start()
+    threads.append(Thread(target=send_request_handler(client_address, privkey), args=(len(threads),)))
+    threads[len(threads)-1].daemon = True
+    threads[len(threads)-1].start()
 
 def keyb_input_handler(i):
     while True:
@@ -263,41 +295,10 @@ threads = []
 threads.append(Thread(target=keyb_input_handler, args=(0,)))
 threads[0].daemon = False
 threads[0].start()
-register_node()
+# register_node()
 
-last_thread = len(threads)
 for thread_index in range(0, len(client_address_dataset)):
-    next_thread = last_thread + thread_index
-    # print(next_thread)
-    threads.append(Thread(target=get_request_handler(client_address_dataset[thread_index]), args=(len(threads),)))
-    threads[len(threads)-1].daemon = True
-    threads[len(threads)-1].start()
-# print(threads)
-last_thread = len(threads)
-for thread_index in range(0, len(client_address_dataset)):
-    next_thread = last_thread + thread_index
-    # print(next_thread)
-    threads.append(Thread(target=send_request_handler(client_address_dataset[thread_index]), args=(len(threads),)))
+    threads.append(Thread(target=start_client(client_address_dataset[thread_index]), args=(len(threads),)))
     threads[len(threads)-1].daemon = True
     threads[len(threads)-1].start()
 
-# print(len(threads))
-# threads[0].daemon = False
-# for thread in range(1, len(threads)):
-#     threads[thread].daemon = True
-# for thread in range(0, len(threads)):
-#     threads[thread].start()
-
-    # def listen(client_address):
-    #     while True:
-    #         data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
-    #         data = data.decode()
-    #         data = json.loads(data)
-    #         print(client_address, 'get msg:', data)
-    #         threads.append(Thread(target=reply_phase(data), args=(len(threads),)))
-    #         # threads[len(threads)-1].daemon = True
-    #         # threads[len(threads)-1].start()
-
-    # threads.append(Thread(target=listen(client_address), args=(len(threads),)))
-    # # threads[len(threads)-1].daemon = True
-    # # threads[len(threads)-1].start()

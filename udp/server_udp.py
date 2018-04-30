@@ -10,21 +10,25 @@ parser = ArgumentParser()
 parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
 parser.add_argument('-s', '--status', default='backup', type=str, help='server status (primary/ backup)')
 parser.add_argument('-t', '--type', default='pbft', type=str, help='consensus type')
+parser.add_argument('-c', '--client', default=5, type=int, help='total client')
+
 args = parser.parse_args()
 node_identifier = str(uuid4()).replace('-', '')
-port = int(args.port)
+port = args.port
 node_status = args.status
 consensus_type = args.type
+client_total = args.client
 print(node_status, 'server', 'in', consensus_type,'consensus', 'running using port', port, '...')
 
 consensus = ''
 if consensus_type == 'pbft':
     consensus = PBFTConsensus()
 elif consensus_type == 'zyzzyva':
-    consensus = ZyzzyvaConsensus()
+    consensus = ZyzzyvaConsensus(client_total)
 
 consensus.set_tempfile(str(port))
 blockchain.node_status = node_status
+blockchain.initial_transaction(client_total)
 blockchain.set_database(port)
 blockchain.set_keys(port)
 
@@ -53,7 +57,7 @@ def request_determiner(data):
 
 def request_handler(i):
     while True:
-        data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
+        data, addr = sock.recvfrom(1500) # buffer size is 1500 bytes
         data = data.decode()
         data = json.loads(data)
         threads.append(Thread(target=request_determiner(data), args=(len(threads),)))

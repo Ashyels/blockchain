@@ -13,18 +13,7 @@ import pprint
 class Blockchain:
     def __init__(self):
         # print(TRIA)
-        self.current_transactions = [
-            {
-                "input": [],
-                "output": [
-                    {"txid": 1, "amount": 1000, "sender": None, "receiver" : "U1"},
-                    {"txid": 2, "amount": 1000, "sender": None, "receiver" : "U2"},
-                    {"txid": 3, "amount": 1000, "sender": None, "receiver" : "U3"},
-                    {"txid": 4, "amount": 1000, "sender": None, "receiver" : "U4"},
-                    {"txid": 5, "amount": 1000, "sender": None, "receiver" : "U5"}
-                ]
-            }
-        ]
+        self.current_transactions = []
         self.node_status = 'backup'
         self.privatekey = ''
         self.publickey = ''
@@ -32,6 +21,20 @@ class Blockchain:
         self.serv_pubkeys = []       # Save servers public key
         self.serv_addrs = []    # Save servers address
         self.database = ''
+
+    def initial_transaction(self, client_total):
+        output = []
+        for client in range(1, client_total+1):
+            receiver = 'U' + str(client)
+            tx = {"txid": client, "amount": 1000, "sender": None, "receiver" : receiver}
+            output.append(tx)
+
+        self.current_transactions = [
+            {
+                "input": [],
+                "output": output
+            }
+        ]
 
     def set_keys(self, port):
         keys = []
@@ -177,17 +180,16 @@ class Blockchain:
         signature = signer.sign(hash)
         return signature
 
-    def new_transaction(self, sender, receiver, amount):
+    def new_transaction(self, transaction):
         latest_txid = 0
         for outputlist in self.chain[len(self.chain)-1]['transactions']:
             for txid in outputlist['output']:
                 latest_txid = txid['txid']
         new_txid = latest_txid + 1
-
-        input_list = self.list_unspent_input(sender, receiver, amount)
+        input_list = self.list_unspent_input(transaction['s'], transaction['r'], int(transaction['am']))
         output_list = []
-        output_list.append({"txid": new_txid, "amount": amount, "sender": sender, "receiver" : receiver})
-        validated, output_list = self.validate_transaction(input_list, output_list, sender)
+        output_list.append({"txid": new_txid, "amount": int(transaction['am']), "sender": transaction['s'], "receiver" : transaction['r'], "music": transaction['m']})
+        validated, output_list = self.validate_transaction(input_list, output_list, transaction['s'])
         if validated:
             self.current_transactions.append(
                 {
@@ -245,16 +247,17 @@ class Blockchain:
             print('Missing values ...')
 
     def open_msg(self, data):
+        client_pubkey = data['client_pubkey']
         sender_address = data['sender_address']
         sender_pubkey = self.import_key(data['sender_id'])
         signature = self.reveal_msg(data['signature'])
         encrypted_transaction = self.reveal_msg(data['transaction'])
         transaction = self.decrypt_transaction(encrypted_transaction)
-        return sender_address, sender_pubkey, signature, transaction
+        return client_pubkey, sender_address, sender_pubkey, signature, transaction
 
     def execute_transaction(self, transaction):
         transaction = json.loads(transaction)
-        done = self.new_transaction(transaction['s'], transaction['r'], int(transaction['am']))
+        done = self.new_transaction(transaction)
         if done:
             self.mine()
         else:
