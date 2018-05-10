@@ -5,11 +5,13 @@ class DatabaseController():
 
     def __init__(self, port):
         self.client = MongoClient('localhost', 27017) # client = MongoClient()
-        self.db = self.client['blockchain'] # or db = client.test_database
+        self.db = ''
         self.collection = ''
-        self.set_collection(port)
+        self.set_database(port)
 
-    def set_collection(self, port):
+    def set_database(self, port):
+        db_name = 'DATABASE_' + str(port)
+        self.db = self.client[db_name] # or db = client.test_database
         collection_name = 'blockchain_' + str(port) 
         self.collection = self.db[collection_name] # collection = db.test_collection
         self.collection.remove(None)

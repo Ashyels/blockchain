@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import requests
-from flask import Flask, jsonify, request
+# from flask import Flask, jsonify, request
 from database_controller import *
 import rsa
 import pprint
@@ -21,6 +21,10 @@ class Blockchain:
         self.serv_pubkeys = []       # Save servers public key
         self.serv_addrs = []    # Save servers address
         self.database = ''
+
+        self.request_history = []
+        self.reply_history = []
+        self.request_time_history = []
 
     def initial_transaction(self, client_total):
         output = []
@@ -43,7 +47,7 @@ class Blockchain:
             tx_tempfile.close()
         self.privatekey = keys[0].encode()
         self.publickey = keys[1].encode()
-        print('Keys registered')
+        print('this server Keys has registered')
         # print(self.privatekey, self.publickey)
 
     def set_database(self, port):
@@ -158,7 +162,6 @@ class Blockchain:
             if selisish > 0:
                 output_list.append({"txid": new_txid, "amount": selisish, "sender": sender, "receiver" : sender})
             validated = True
-
         return validated, output_list
 
     def encrypt_msg(self, msg, pubkey):
@@ -186,10 +189,10 @@ class Blockchain:
             for txid in outputlist['output']:
                 latest_txid = txid['txid']
         new_txid = latest_txid + 1
-        input_list = self.list_unspent_input(transaction['s'], transaction['r'], int(transaction['am']))
+        input_list = self.list_unspent_input(transaction['sender'], transaction['receiver'], int(transaction['amount']))
         output_list = []
-        output_list.append({"txid": new_txid, "amount": int(transaction['am']), "sender": transaction['s'], "receiver" : transaction['r'], "music": transaction['m']})
-        validated, output_list = self.validate_transaction(input_list, output_list, transaction['s'])
+        output_list.append({"txid": new_txid, "amount": int(transaction['amount']), "sender": transaction['sender'], "receiver" : transaction['receiver'], "music": transaction['music']})
+        validated, output_list = self.validate_transaction(input_list, output_list, transaction['sender'])
         if validated:
             self.current_transactions.append(
                 {
@@ -232,14 +235,16 @@ class Blockchain:
         last_block = self.last_block
         previous_hash = self.chain[-1]['data_hash']
         block = self.new_block(previous_hash)
+        print('Transaction Executed!')
 
         response = {
-            'message': "New Block Forged",
+            'message': "Transaction Success!",
             'index': block['index'],
             'transactions': block['transactions'],
             'previous_hash': block['previous_hash'],
         }
-        pprint.pprint(response)
+        self.reply_history.append(response)
+        return response
 
     def check_value(self, data):
         required = ['sender_id', 'transaction', 'signature']
@@ -255,13 +260,80 @@ class Blockchain:
         transaction = self.decrypt_transaction(encrypted_transaction)
         return client_pubkey, sender_address, sender_pubkey, signature, transaction
 
+    def is_in_request_history(self, transaction):
+        print(self.request_time_history)
+        index = 0
+        response = ''
+        while index < len(self.request_time_history):
+            if time() - self.request_time_history[index] >= 20:
+                self.request_history.pop(index)
+                self.request_time_history.pop(index)
+                self.reply_history.pop(index)
+            else:
+                index = index + 1            
+            if transaction == self.request_history[index]:
+                response = self.reply_history[index]
+
+        if transaction in self.request_history:
+            return True, response
+        else:
+            self.request_history.append(transaction)
+            self.request_time_history.append(time())
+            return False, response
+
     def execute_transaction(self, transaction):
         transaction = json.loads(transaction)
-        done = self.new_transaction(transaction)
-        if done:
-            self.mine()
-        else:
-            print('Transaction is invalid')
+        if transaction['request_type'] == 1:
+            is_exist, response = self.is_in_request_history(transaction)
+            if not is_exist:
+                done = self.new_transaction(transaction)
+                if done:
+                    return self.mine()
+                else:
+                    print('Transaction is invalid')
+                    response = {
+                        'message': "Transaction is invalid",
+                    }
+                    return response
+            else:
+                print('transaction is still exist')
+                return response
+        elif transaction['request_type'] == 2:
+            return self.count_balance(transaction)
+
+    def count_balance(self, transaction):
+
+        account = transaction['sender']
+        outputList = []
+        inputTxIDList = []
+        outputTxIDList = []
+        for block in self.chain:
+            for transaction in block['transactions']:
+                for tx_input in transaction['input']:
+                    if tx_input['receiver'] == account:
+                        inputTxIDList.append(tx_input['txid'])
+                for tx_output in transaction['output']:
+                    if tx_output['receiver'] == account:
+                        outputList.append(tx_output)
+                        outputTxIDList.append(tx_output['txid'])
+
+        UnspentInputTxIDList = [val for val in outputTxIDList if val not in inputTxIDList]
+        UnspentInputList = []
+        for tx in outputList:
+            for tx_id in UnspentInputTxIDList:
+                if tx_id == tx['txid']:
+                    UnspentInputList.append(tx)
+        balance = 0
+        for tx in UnspentInputList:
+            balance = balance + tx['amount']
+
+        print('Transaction Executed!')
+
+        response = {
+            'message': "Transaction Success",
+            'balances': balance,
+        }
+        return response
 
     def import_key(self, key):
         from Crypto.PublicKey import RSA

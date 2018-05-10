@@ -4,41 +4,29 @@ blockchain = Blockchain()
 
 class PBFTConsensus():
     def __init__(self):
-        self.prepare_tempfile = ''
-        self.commit_tempfile = ''
+        self.prepare_temp = self.initiate_temp()
+        self.commit_temp = self.initiate_temp()
 
-    def set_tempfile(self, filename):
-        self.prepare_tempfile = 'temp/' + filename + '_PREPARE' +'.temp'
-        self.commit_tempfile = 'temp/' + filename +  '_COMMIT' + '.temp'
-        with open(self.prepare_tempfile, 'w+') as tx_tempfile:
-            json.dump([], tx_tempfile)
-            tx_tempfile.close()
-        with open(self.commit_tempfile, 'w+') as tx_tempfile:
-            json.dump([], tx_tempfile)
-            tx_tempfile.close()
-
+    def initiate_temp(self):
+        array = []
+        return array
 
     def commit_phase(self, data):
         blockchain.check_value(data)
         client_pubkey, sender_address, sender_pubkey, signature, transaction = blockchain.open_msg(data)
         authenticated = blockchain.authenticate_transaction(sender_pubkey, signature, transaction)
         if authenticated:
-            print('commit', 'message authenticated')
-            consisting_transactions = []
-            with open(self.commit_tempfile, 'r') as tx_tempfile:
-                consisting_transactions = json.load(tx_tempfile)
-                tx_tempfile.close()
-            with open(self.commit_tempfile, 'w') as tx_tempfile:
-                consisting_transactions.append(transaction)
-                json.dump(consisting_transactions, tx_tempfile)
-                tx_tempfile.close()
-            print('commit', len(consisting_transactions), len(blockchain.serv_addrs))
-            if len(consisting_transactions) == len(blockchain.serv_addrs):
-                for consisting_transaction in consisting_transactions:
+            # print('commit', 'message authenticated')
+            self.commit_temp.append(transaction)
+            # print('commit', len(consisting_transactions), len(blockchain.serv_addrs))
+            if len(self.commit_temp) == len(blockchain.serv_addrs):
+                for consisting_transaction in self.commit_temp:
                     if consisting_transaction == transaction:
-                        blockchain.execute_transaction(transaction)
-                        self.clear_tempstorage(self.commit_tempfile)
-                        print('multicast reply msg')
+                        # print(transaction)
+                        transaction = json.dumps(blockchain.execute_transaction(transaction))
+                        print(transaction)
+                        # print('multicast reply msg')
+                        self.commit_temp = []
                         response = self.multicast_reply_msg(sender_address, transaction, client_pubkey)
                         break
         else:
@@ -49,25 +37,18 @@ class PBFTConsensus():
         client_pubkey, sender_address, sender_pubkey, signature, transaction = blockchain.open_msg(data)
         authenticated = blockchain.authenticate_transaction(sender_pubkey, signature, transaction)
         if authenticated:
-            print('prepare', 'message authenticated')
-            consisting_transactions = []
-            with open(self.prepare_tempfile, 'r') as tx_tempfile:
-                consisting_transactions = json.load(tx_tempfile)
-                tx_tempfile.close()
-            with open(self.prepare_tempfile, 'w') as tx_tempfile:
-                consisting_transactions.append(transaction)
-                json.dump(consisting_transactions, tx_tempfile)
-                tx_tempfile.close()
+            # print('prepare', 'message authenticated')
+            self.prepare_temp.append(transaction)
             if blockchain.node_status == 'primary':
-                total_recv_msg = len(blockchain.serv_addrs)
+                total_recv_msg = int(round(2*(len(blockchain.serv_addrs)+1)/3))
             else:
-                total_recv_msg = len(blockchain.serv_addrs)-1
-            print('prepare', len(consisting_transactions), total_recv_msg)
-            if len(consisting_transactions) == total_recv_msg:
-                for consisting_transaction in consisting_transactions:
+                total_recv_msg = int(round(2*(len(blockchain.serv_addrs))/3))
+            # print('prepare', len(consisting_transactions), total_recv_msg)
+            if len(self.prepare_temp) == total_recv_msg:
+                for consisting_transaction in self.prepare_temp:
                     if consisting_transaction == transaction:
-                        self.clear_tempstorage(self.prepare_tempfile)
-                        print('multicast commit msg')
+                        self.prepare_temp = []
+                        # print('multicast commit msg')
                         response = self.multicast_commit_msg(sender_address, transaction, client_pubkey)
                         break
         else:
@@ -78,26 +59,25 @@ class PBFTConsensus():
         client_pubkey, sender_address, sender_pubkey, signature, transaction = blockchain.open_msg(data)
         authenticated = blockchain.authenticate_transaction(sender_pubkey, signature, transaction)
         if authenticated:
-            print('preprepare', 'message authenticated')
-            print('multicast prepare msg')
+            # print('preprepare', 'message authenticated')
+            # print('multicast prepare msg')
             response = self.multicast_prepare_msg(sender_address, transaction, client_pubkey)
         else:
             print('message not authenticated')
 
     def request_phase(self, data):
         blockchain.check_value(data)
-        # print(data)
         client_pubkey, sender_address, sender_pubkey, signature, transaction = blockchain.open_msg(data)
         authenticated = blockchain.authenticate_transaction(sender_pubkey, signature, transaction)
         if authenticated:
-            print('request', 'message authenticated')
-            print('multicast preprepare msg')
+            # print('request', 'message authenticated')
+            # print('multicast preprepare msg')
             response = self.multicast_preprepare_msg(sender_address, transaction, client_pubkey)
         else:
             print('message not authenticated')
 
     def multicast_preprepare_msg(self, sender_address, transaction, client_pubkey):
-        print(blockchain.serv_addrs)
+        # print(blockchain.serv_addrs)
         import base64
         signature = blockchain.sign_msg(transaction)
         encapsulated_signature = blockchain.encapsulate_msg(signature)
@@ -140,20 +120,11 @@ class PBFTConsensus():
         import base64
         signature = blockchain.sign_msg(transaction)
         encapsulated_signature = blockchain.encapsulate_msg(signature)
-
-        # client_pubkey = client_pubkey.exportKey('PEM')
         encrypted_transaction = blockchain.encrypt_msg(transaction, client_pubkey)
         encapsulated_transaction = blockchain.encapsulate_msg(encrypted_transaction)
+
         data={'client_pubkey': client_pubkey, 'sender_address': sender_address,'sender_id': blockchain.publickey.decode(), 'transaction': encapsulated_transaction, 'signature': encapsulated_signature}
         data['route'] = 'transaction/reply'
         ip, colon, port = sender_address.partition(':')
         blockchain.send_msg(data, ip, int(port))
-        print('REPLY DONE')
-
-
-    def clear_tempstorage(self, tempfile_name):
-        with open(tempfile_name, 'w') as tx_tempfile:
-            consisting_transactions = []
-            json.dump([], tx_tempfile)
-            tx_tempfile.close()
-        print(tempfile_name, 'cleaned up')
+        print('REPLY DONE', 'to', sender_address)
